@@ -10,8 +10,11 @@ from typing import Dict, Union
 import requests
 from dotenv import load_dotenv
 
-from currencypy.exceptions import (CurrencyAPIException,
-                                   CurrencyAPIKeyException, CurrencyException)
+from currencypy.exceptions import (
+    CurrencyAPIException,
+    CurrencyAPIKeyException,
+    CurrencyException,
+)
 
 
 class CurrencyConvertor:
@@ -208,7 +211,8 @@ class CurrencyConvertor:
         self.live_update = live_update
         self._supported_currencies = self.get_supported_currencies(live_update)
 
-    def __load_api_key_from_env(self) -> str:
+    @staticmethod
+    def __load_api_key_from_env() -> str:
         """
         Load api key from the environment variable API-KEY.
         return:
