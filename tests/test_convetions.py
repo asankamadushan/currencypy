@@ -5,8 +5,8 @@ import time
 from datetime import datetime
 
 import pytest
-from currancypy.currency_convertor import CurrencyConvertor
-from currancypy.exceptions import CurrencyAPIException
+from currencypy.currency_convertor import CurrencyConvertor
+from currencypy.exceptions import CurrencyAPIException
 
 
 @pytest.mark.parametrize(
@@ -20,7 +20,6 @@ def test_convert_between_different_currencies(
     Test the convert method of the CurrencyConvertor class.
     """
     currency_convertor = CurrencyConvertor()
-    # time.sleep(60)
     assert (
         currency_convertor.convert(
             amount,
@@ -37,7 +36,7 @@ def test_get_currency_rates_with_invalid_from_currency():
     Test the get_currency_rates method of the CurrencyConvertor class.
     """
     currency_convertor = CurrencyConvertor()
-    time.sleep(60)
+    time.sleep(1)
     with pytest.raises(CurrencyAPIException):
         currency_convertor.get_currency_rates("INR", "USD", datetime(2019, 1, 1))
 
@@ -51,7 +50,7 @@ def test_get_currency_rates(from_currency, to_currency, expected):
     Test the get_currency_rates method of the CurrencyConvertor class.
     """
     currency_convertor = CurrencyConvertor()
-    time.sleep(60)
+    time.sleep(2)
     assert (
         currency_convertor.get_currency_rates(
             from_currency, to_currency, datetime(2019, 1, 1)

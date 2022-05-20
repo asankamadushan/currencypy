@@ -6,6 +6,7 @@ name = "pypi"
 [packages]
 requests = "==2.27.1"
 python-dotenv = "==0.20.0"
+currancypy = {editable = true, path = "."}
 
 [dev-packages]
 pylint = "==2.13.9"

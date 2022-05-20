@@ -10,11 +10,8 @@ from typing import Dict, Union
 import requests
 from dotenv import load_dotenv
 
-from currancypy.exceptions import (
-    CurrencyAPIException,
-    CurrencyAPIKeyException,
-    CurrencyException,
-)
+from currencypy.exceptions import (CurrencyAPIException,
+                                   CurrencyAPIKeyException, CurrencyException)
 
 
 class CurrencyConvertor:
