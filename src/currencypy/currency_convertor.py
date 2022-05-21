@@ -351,7 +351,8 @@ class CurrencyConvertor:
 
         Convert between different currencies on a given date rate.
         >>> c = CurrencyConvertor()
-        >>> c.convert(100.0, from_currency="USD", to_currency="LKR", date=datetime(2019, 1, 1))
+        >>> c.convert(100.0, from_currency="USD", to_currency="LKR",
+                        date=datetime(2019, 1, 1))
         18283.9983
 
         Convert between same currencies.
