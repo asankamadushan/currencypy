@@ -214,15 +214,15 @@ class CurrencyConvertor:
     @staticmethod
     def __load_api_key_from_env() -> str:
         """
-        Load api key from the environment variable API-KEY.
+        Load api key from the environment variable CL_API_KEY.
         return:
             The API key.
         """
         load_dotenv()
-        key = os.getenv("API-KEY")
+        key = os.environ.get("CL_API_KEY")
         if key is None:
             raise CurrencyAPIKeyException(
-                "API-KEY is not set in the environment variable."
+                "CL_API_KEY is not set in the environment variable."
             )
         return key
 
