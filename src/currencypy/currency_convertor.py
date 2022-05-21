@@ -321,6 +321,10 @@ class CurrencyConvertor:
         returns:
             The currency rate.
         """
+        if from_currency not in self._supported_currencies:
+            raise CurrencyException(f"{from_currency} is not a supported currency")
+        if to_currency not in self._supported_currencies:
+            raise CurrencyException(f"{to_currency} is not a supported currency")
         if date:
             rates = self._fetch_historical_currency_rates(
                 from_currency, to_currency, date
@@ -360,11 +364,6 @@ class CurrencyConvertor:
         >>> c.convert(100.0, from_currency="USD", to_currency="USD")
         100.0
         """
-        if from_currency not in self._supported_currencies:
-            raise CurrencyException(f"{from_currency} is not a supported currency")
-        if to_currency not in self._supported_currencies:
-            raise CurrencyException(f"{to_currency} is not a supported currency")
-
         if "USD" not in [from_currency, to_currency]:
             raise CurrencyException("Only USD is supported")
 
@@ -377,10 +376,7 @@ class CurrencyConvertor:
 if __name__ == "__main__":
     c = CurrencyConvertor()
     x = c.convert(
-        100.0, from_currency="USD", to_currency="LKR", date=datetime(2019, 1, 1)
+        100.0, from_currency="INR", to_currency="USD", date=datetime(2019, 1, 1)
     )
     print(x)
-    # import doctest
-
-    # doctest.testmod()
     print("All tests passed")
