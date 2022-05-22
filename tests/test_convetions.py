@@ -7,72 +7,97 @@ from datetime import datetime
 import pytest
 from currencypy.currency_convertor import CurrencyConvertor
 from currencypy.exceptions import CurrencyException
-from pytest_mock import MockFixture
+from requests_mock import Mocker
 
 
 @pytest.mark.parametrize(
-    "from_currency, to_currency, amount, expected",
-    [("USD", "LKR", 100, 18283.9983), ("USD", "USD", 100, 100)],
+    "from_currency, to_currency, amount, rate, expected",
+    [
+        ("USD", "LKR", 100, 182.839983, 18283.9983),
+        ("USD", "USD", 100, 1, 100),
+        ("USD", "INR", 100, 1.3598, 135.98),
+    ],
 )
 def test_convert_between_different_currencies(
-    from_currency, to_currency, amount, expected
+    from_currency, to_currency, amount, rate, expected
 ):
     """
     Test the convert method of the CurrencyConvertor class.
     """
-    currency_convertor = CurrencyConvertor()
-    assert (
-        currency_convertor.convert(
-            amount,
-            from_currency=from_currency,
-            to_currency=to_currency,
-            date=datetime(2019, 1, 1),
+    with Mocker() as mocker:
+        mocker.get(
+            "http://api.currencylayer.com/historical",
+            json={
+                "success": True,
+                "terms": "https://currencylayer.com/terms",
+                "privacy": "https://currencylayer.com/privacy",
+                "quotes": {
+                    f"{from_currency}{to_currency}": rate,
+                },
+            },
         )
-        == expected
-    )
+        currency_convertor = CurrencyConvertor()
+        assert (
+            currency_convertor.convert(
+                amount,
+                from_currency=from_currency,
+                to_currency=to_currency,
+                date=datetime(2019, 1, 1),
+            )
+            == expected
+        )
 
 
 @pytest.mark.parametrize(
-    "from_curency, to_currency, date",
+    "from_currency, to_currency, date",
     [("USD", "KKI", datetime(2019, 1, 1)), ("USD", "IIi099", datetime(2019, 1, 1))],
 )
-def test_get_currency_rates_with_invalid_from_currency(from_curency, to_currency, date):
+def test_get_currency_rates_with_invalid_from_currency(
+    from_currency, to_currency, date
+):
     """
     Test the get_currency_rates method of the CurrencyConvertor class.
     """
-    currency_convertor = CurrencyConvertor()
-    time.sleep(1)
-    with pytest.raises(CurrencyException):
-        currency_convertor.get_currency_rates(from_curency, to_currency, date)
+    with Mocker() as mocker:
+        mocker.get(
+            "http://api.currencylayer.com/historical",
+            json={
+                "success": False,
+                "error": {"code": 104, "info": "Invalid currency: INVALID"},
+            },
+        )
+        currency_convertor = CurrencyConvertor()
+        with pytest.raises(CurrencyException):
+            currency_convertor.get_currency_rates(from_currency, to_currency, date)
 
 
 @pytest.mark.parametrize(
     "from_currency, to_currency, expected",
     [("USD", "LKR", 182.839983)],
 )
-def test_get_currency_rates(
-    from_currency: str, to_currency: str, expected: float, mocker: MockFixture
-):
+def test_get_currency_rates(from_currency: str, to_currency: str, expected: float):
     """
     Test the get_currency_rates method of the CurrencyConvertor class.
     """
-    mock_request = mocker.patch("currencypy.currency_convertor.requests.get")
-    mock_request.return_value.json.return_value = {
-        "success": True,
-        "terms": "https://currencylayer.com/terms",
-        "privacy": "https://currencylayer.com/privacy",
-        "timestamp": 1547897200,
-        "source": "USD",
-        "quotes": {f"{from_currency}{to_currency}": 182.839983},
-    }
-    currency_convertor = CurrencyConvertor()
-    time.sleep(2)
-    assert (
-        currency_convertor.get_currency_rates(
-            from_currency, to_currency, datetime(2019, 1, 1)
+    with Mocker() as mocker:
+        mocker.get(
+            "http://api.currencylayer.com/historical",
+            json={
+                "success": True,
+                "terms": "https://currencylayer.com/terms",
+                "privacy": "https://currencylayer.com/privacy",
+                "quotes": {
+                    "USDLKR": 182.839983,
+                },
+            },
         )
-        == expected
-    )
+        currency_convertor = CurrencyConvertor()
+        assert (
+            currency_convertor.get_currency_rates(
+                from_currency, to_currency, datetime(2019, 1, 1)
+            )
+            == expected
+        )
 
 
 def test_get_supported_currencies():
@@ -80,7 +105,6 @@ def test_get_supported_currencies():
     Test the get_supported_currencies method of the CurrencyConvertor class.
     """
     currency_convertor = CurrencyConvertor()
-    time.sleep(1)
     assert list(currency_convertor.get_supported_currencies().keys()) == [
         "AED",
         "AFN",
