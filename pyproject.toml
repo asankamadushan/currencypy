@@ -8,3 +8,14 @@ addopts = "--cov=currencypy"
 testpaths = [
     "tests",
 ]
+
+[mypy]
+exclude = [
+    "tests",
+    "docs",
+    "build",
+    "dist",
+    "venv",
+    "currencypy/__init__.py",
+    "currencypy/_version.py",
+]

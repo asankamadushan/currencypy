@@ -1,13 +1,12 @@
 """
 The unit tests for the CurrencyConvertor class.
 """
-import time
 from datetime import datetime
 
 import pytest
+from requests_mock import Mocker
 from currencypy.currency_convertor import CurrencyConvertor
 from currencypy.exceptions import CurrencyException
-from requests_mock import Mocker
 
 
 @pytest.mark.parametrize(
