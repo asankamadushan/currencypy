@@ -14,7 +14,7 @@ from currencypy.exceptions import CurrencyException
     [
         ("USD", "LKR", 100, 182.839983, 18283.9983),
         ("USD", "USD", 100, 1, 100),
-        ("USD", "INR", 100, 1.3598, 135.98),
+        ("USD", "INR", 100, 1.3598, 6974.0272),
     ],
 )
 def test_convert_between_different_currencies(

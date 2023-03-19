@@ -11,9 +11,8 @@ import json
 import urllib
 import urllib.parse
 import urllib.request
-
-from dotenv import load_dotenv
 from dataclasses import dataclass
+from dotenv import load_dotenv
 from currencypy.exceptions import (
     CurrencyAPIException,
     CurrencyAPIKeyException,
@@ -304,10 +303,10 @@ class CurrencyConvertor:
         """
         self.api_key = api_key or self.__load_api_key_from_env()
         self.live_update = live_update
-        self._supported_currencies = self.get_supported_currencies(live_update)
         self.api_service = APIRequestHandler(
             base_url=self._BASE_URL, api_key=self.api_key
         )
+        self._supported_currencies = self.get_supported_currencies(live_update)
 
     @staticmethod
     def __load_api_key_from_env() -> str:
@@ -335,8 +334,8 @@ class CurrencyConvertor:
             self._SUPPORTED_LIST_URL, params={"access_key": self.api_key}
         )
 
-        if not response.success:
-            raise CurrencyAPIException("Error getting currencies")
+        if not response.success or response.data["success"] is False:
+            self._raise_api_error(response)
 
         return response.data["currencies"]
 
@@ -357,8 +356,8 @@ class CurrencyConvertor:
             params={"source": from_currency},
         )
 
-        if not response.success:
-            raise CurrencyAPIException("Error getting currencies")
+        if not response.success or response.data["success"] is False:
+            self._raise_api_error(response)
 
         return response.data
 
@@ -390,10 +389,14 @@ class CurrencyConvertor:
             },
         )
         if not response.success or response.data["success"] is False:
-            error = response.data.get("error") if response.data else None
-            raise CurrencyAPIException("Error getting currencies", error)
+            self._raise_api_error(response)
 
         return response.data
+
+    @staticmethod
+    def _raise_api_error(response: APIResponse):
+        error = response.data.get("error") if response.data else None
+        raise CurrencyAPIException("Error getting currencies", error)
 
     def get_supported_currencies(self, live_update=False) -> Dict[str, str]:
         """
@@ -477,10 +480,13 @@ class CurrencyConvertor:
 
 
 if __name__ == "__main__":
-    c = CurrencyConvertor()
+    c = CurrencyConvertor(live_update=True)
     try:
         x = c.convert(
-            100.0, from_currency="INR", to_currency="LKR", date=datetime(2019, 1, 1)
+            100.0, from_currency="USD", to_currency="INR", date=datetime(2019, 1, 1)
+        )
+        x = c.convert(
+            100.0, from_currency="USD", to_currency="LKR", date=datetime(2019, 1, 1)
         )
     except CurrencyException as e:
         print(e)
