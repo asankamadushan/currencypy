@@ -2,10 +2,10 @@
 The unit tests for the CurrencyConvertor class.
 """
 from datetime import datetime
-
+from unittest.mock import patch
 import pytest
-from requests_mock import Mocker
-from currencypy.currency_convertor import CurrencyConvertor
+from currencypy.currency_convertor import APIResponse, CurrencyConvertor
+from currencypy.currency_convertor import APIRequestHandler
 from currencypy.exceptions import CurrencyException
 
 
@@ -14,7 +14,7 @@ from currencypy.exceptions import CurrencyException
     [
         ("USD", "LKR", 100, 182.839983, 18283.9983),
         ("USD", "USD", 100, 1, 100),
-        ("USD", "INR", 100, 1.3598, 6974.0272),
+        ("USD", "INR", 100, 1.3598, 135.98),
     ],
 )
 def test_convert_between_different_currencies(
@@ -23,28 +23,23 @@ def test_convert_between_different_currencies(
     """
     Test the convert method of the CurrencyConvertor class.
     """
-    with Mocker() as mocker:
-        mocker.get(
-            "http://api.currencylayer.com/historical",
-            json={
-                "success": True,
-                "terms": "https://currencylayer.com/terms",
-                "privacy": "https://currencylayer.com/privacy",
-                "quotes": {
-                    f"{from_currency}{to_currency}": rate,
-                },
-            },
-        )
+    data = {
+        "success": True,
+        "terms": "https://currencylayer.com/terms",
+        "privacy": "https://currencylayer.com/privacy",
+        "quotes": {
+            f"{from_currency}{to_currency}": rate,
+        },
+    }
+    mocked_response = APIResponse(200, True, data, {})
+
+    with patch("currencypy.currency_convertor.APIRequestHandler.get") as mocker:
+        mocker.return_value = mocked_response
         currency_convertor = CurrencyConvertor()
-        assert (
-            currency_convertor.convert(
-                amount,
-                from_currency=from_currency,
-                to_currency=to_currency,
-                date=datetime(2019, 1, 1),
-            )
-            == expected
+        result = currency_convertor.convert(
+            amount, from_currency=from_currency, to_currency=to_currency
         )
+        assert result == expected
 
 
 @pytest.mark.parametrize(
@@ -57,14 +52,13 @@ def test_get_currency_rates_with_invalid_from_currency(
     """
     Test the get_currency_rates method of the CurrencyConvertor class.
     """
-    with Mocker() as mocker:
-        mocker.get(
-            "http://api.currencylayer.com/historical",
-            json={
-                "success": False,
-                "error": {"code": 104, "info": "Invalid currency: INVALID"},
-            },
-        )
+    data = {
+        "success": False,
+        "error": {"code": 104, "info": "Invalid currency: INVALID"},
+    }
+    mocked_response = APIResponse(200, True, data, {})
+    with patch("currencypy.currency_convertor.APIRequestHandler.get") as mocker:
+        mocker.return_value = mocked_response
         currency_convertor = CurrencyConvertor()
         with pytest.raises(CurrencyException):
             currency_convertor.get_currency_rates(from_currency, to_currency, date)
@@ -78,18 +72,17 @@ def test_get_currency_rates(from_currency: str, to_currency: str, expected: floa
     """
     Test the get_currency_rates method of the CurrencyConvertor class.
     """
-    with Mocker() as mocker:
-        mocker.get(
-            "http://api.currencylayer.com/historical",
-            json={
-                "success": True,
-                "terms": "https://currencylayer.com/terms",
-                "privacy": "https://currencylayer.com/privacy",
-                "quotes": {
-                    "USDLKR": 182.839983,
-                },
-            },
-        )
+    data = {
+        "success": True,
+        "terms": "https://currencylayer.com/terms",
+        "privacy": "https://currencylayer.com/privacy",
+        "quotes": {
+            "USDLKR": 182.839983,
+        },
+    }
+    mocked_response = APIResponse(200, True, data, {})
+    with patch("currencypy.currency_convertor.APIRequestHandler.get") as mocker:
+        mocker.return_value = mocked_response
         currency_convertor = CurrencyConvertor()
         assert (
             currency_convertor.get_currency_rates(

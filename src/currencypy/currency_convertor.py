@@ -5,7 +5,7 @@ import logging
 import os
 from datetime import datetime
 from functools import lru_cache
-from typing import Dict, Union
+from typing import Union
 
 import json
 import urllib
@@ -30,6 +30,7 @@ class APIResponse:
     headers: dict
 
 
+# pylint: disable=too-few-public-methods
 class APIRequestHandler:
     """The HTTP Api request handler class."""
 
@@ -37,13 +38,13 @@ class APIRequestHandler:
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
-    _default_key_name = "apikey"
+    _default_key_name = "access_key"
 
     def __init__(
         self,
         base_url: str,
         api_key: Union[str, None] = None,
-        headers: Union[Dict[str, str], None] = None,
+        headers: Union[dict[str, str], None] = None,
     ):
         """The constructor method.
         Args:
@@ -58,7 +59,9 @@ class APIRequestHandler:
         if self.api_key:
             self.headers[self._default_key_name] = self.api_key
 
-    def get(self, path: str, params: Dict[str, Union[str, int]]) -> APIResponse:
+    def get(
+        self, path: str, params: dict[str, Union[str, int]] | None = None
+    ) -> APIResponse:
         """The HTTP GET request method.
         Args:
             path (str): The path of the API endpoint.
@@ -67,48 +70,44 @@ class APIRequestHandler:
             Dict[str, Union[str, int]]: The response data.
 
         Raises:
-            CurrencyAPIException: If the response status is not in range 200-299.
+            CurrencyAPIException: If the response status is not in range 200.
         """
-        url = self._get_url(path)
-        q_params = self._get_query_params(params)
-        url = f"{url}?{q_params}"
+        url = urllib.parse.urljoin(self.base_url, path)
+        if not params:
+            copy_params = {}
+        else:
+            copy_params = params.copy()
+
+        if self.api_key:
+            copy_params[self._default_key_name] = self.api_key
+        encoded_params = urllib.parse.urlencode(copy_params)
+        url = f"{url}?{encoded_params}"
         with urllib.request.urlopen(url) as response:
-            if response.status in range(200, 299):
-                return APIResponse(
+            if response.status == 200:
+                result = APIResponse(
                     status_code=response.status,
                     success=True,
                     data=json.loads(response.read()),
                     headers=response.headers,
                 )
             elif response.status in range(400, 499):
-                return APIResponse(
+                result = APIResponse(
                     status_code=response.status,
                     success=False,
                     data=json.loads(response.read()),
                     headers=response.headers,
                 )
             else:
-                return APIResponse(
+                result = APIResponse(
                     status_code=response.status,
                     success=False,
                     data={"error": "Something went wrong"},
                     headers=response.headers,
                 )
+        return result
 
-    @staticmethod
-    def _get_query_params(params: dict[str, Union[str, int]]) -> str:
-        """The query params builder method.
-        Args:
-            params (Dict[str, Union[str, int]]): The query params.
-        """
-        return urllib.parse.urlencode(params)
 
-    def _get_url(self, path: str) -> str:
-        """The URL builder method.
-        Args:
-            path (str): The path of the API endpoint.
-        """
-        return urllib.parse.urljoin(self.base_url, path)
+# pylint: disable=too-few-public-methods
 
 
 class CurrencyConvertor:
@@ -323,23 +322,21 @@ class CurrencyConvertor:
             )
         return key
 
-    def _fetch_supported_currencies(self) -> Dict[str, str]:
+    def _fetch_supported_currencies(self) -> dict[str, str]:
         """
         Fetch the supported currencies from the API.
         returns:
             The supported currencies.
         """
         logging.debug("Fetching supported currencies")
-        response = self.api_service.get(
-            self._SUPPORTED_LIST_URL, params={"access_key": self.api_key}
-        )
+        response = self.api_service.get(self._SUPPORTED_LIST_URL)
 
         if not response.success or response.data["success"] is False:
             self._raise_api_error(response)
 
         return response.data["currencies"]
 
-    def _fetch_live_currency_rates(self, from_currency: str, to_currency: str) -> Dict:
+    def _fetch_live_currency_rates(self, from_currency: str, to_currency: str) -> dict:
         """
         Fetch the currency rates from the API.
         args:
@@ -353,7 +350,7 @@ class CurrencyConvertor:
         )
         response = self.api_service.get(
             self._LIVE_URL,
-            params={"source": from_currency},
+            params={"source": from_currency, "access_key": self.api_key},
         )
 
         if not response.success or response.data["success"] is False:
@@ -363,7 +360,7 @@ class CurrencyConvertor:
 
     def _fetch_historical_currency_rates(
         self, from_currency: str, to_currency: str, date: datetime
-    ) -> Dict:
+    ) -> dict:
         """
         Fetch the currency rates from the API.
         args:
@@ -398,7 +395,7 @@ class CurrencyConvertor:
         error = response.data.get("error") if response.data else None
         raise CurrencyAPIException("Error getting currencies", error)
 
-    def get_supported_currencies(self, live_update=False) -> Dict[str, str]:
+    def get_supported_currencies(self, live_update=False) -> dict[str, str]:
         """
         Get the supported currencies.
         args:
@@ -482,9 +479,12 @@ class CurrencyConvertor:
 if __name__ == "__main__":
     c = CurrencyConvertor(live_update=True)
     try:
-        x = c.convert(
-            100.0, from_currency="USD", to_currency="INR", date=datetime(2019, 1, 1)
-        )
+        i = 0
+        while i < 1000:
+            x = c.convert(100.0, from_currency="USD", to_currency="LKR")
+            i += 1
+
+        x = c.convert(100.0, from_currency="USD", to_currency="INR")
         x = c.convert(
             100.0, from_currency="USD", to_currency="LKR", date=datetime(2019, 1, 1)
         )
