@@ -1,19 +1,69 @@
 [build-system]
-requires = ["setuptools>=42.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "currencypy"
+version = "1.0.0"
+description = "A wrapper for currencylayer API"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [{ name = "Asanka Perera" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "python-dotenv>=0.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.4",
+    "pytest==8.0.2",
+    "mypy==1.8.0",
+    "tox==4.13.0",
+    "pre-commit==3.6.2",
+]
+testing = [
+    "pytest>=7.0",
+    "pytest-cov>=3.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+currencypy = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
 ]
 
-[mypy]
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+# Match prior flake8: slice spacing with Black/Ruff formatter
+ignore = ["E203"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
 exclude = [
     "tests",
     "docs",
     "build",
     "dist",
     "venv",
-    "currencypy/__init__.py",
-    "currencypy/_version.py",
+    "src/currencypy/__init__.py",
+    "src/currencypy/_version.py",
 ]

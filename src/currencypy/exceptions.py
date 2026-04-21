@@ -1,6 +1,7 @@
 """
 Currency exceptions module.
 """
+
 from typing import Dict, Union, Any
 
 

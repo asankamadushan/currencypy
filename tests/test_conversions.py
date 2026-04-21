@@ -1,11 +1,11 @@
 """
 The unit tests for the CurrencyConvertor class.
 """
+
 from datetime import datetime
 from unittest.mock import patch
 import pytest
 from currencypy.currency_convertor import APIResponse, CurrencyConvertor
-from currencypy.currency_convertor import APIRequestHandler
 from currencypy.exceptions import CurrencyException
 
 

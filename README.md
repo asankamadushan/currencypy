@@ -1,24 +1,70 @@
 # Python currency conversion
 This is wrapper for currancylayer API
 
-
 ## Development
-### How to generate requirements.txt
+
+Install [uv](https://docs.astral.sh/uv/), then create a virtual environment and install the project with dev dependencies:
+
 ```bash
-pipenv requirements > requirements.txt
-pipenv requirements --dev > requirements_dev.txt
+uv sync --all-extras
 ```
-### Hot use pre-commit
-use pre-commit to run all checks
+
+Or only runtime dependencies:
+
 ```bash
-pre-commit run --all-files
+uv sync
+```
+
+### Optional: export requirements files for pip-only workflows
+
+If you need `requirements.txt` files (for example legacy CI), generate them from the lockfile:
+
+```bash
+uv export --no-dev -o requirements.txt
+uv export --extra dev -o requirements_dev.txt
+```
+
+### Linting and formatting (Ruff)
+
+[Ruff](https://docs.astral.sh/ruff/) checks and formats Python code (replacing Black, Flake8, and Pylint in this repo):
+
+```bash
+uv run ruff check src tests
+uv run ruff format --check src tests
+```
+
+To apply formatting:
+
+```bash
+uv run ruff format src tests
+```
+
+### Type checking (mypy)
+
+Static type checking is separate from Ruff:
+
+```bash
+uv run mypy src
+```
+
+### How to use pre-commit
+
+Pre-commit runs Ruff and mypy (and file hygiene hooks):
+
+```bash
+uv run pre-commit run --all-files
 ```
 
 ### How to run tests
+
 ```bash
-pytest
+uv run pytest
 ```
-or
+
+Set `CL_API_KEY` in the environment (or `.env`) when exercising the API client.
+
+Or use tox:
+
 ```bash
-tox -e pytest
+uv run tox -e pytest
 ```

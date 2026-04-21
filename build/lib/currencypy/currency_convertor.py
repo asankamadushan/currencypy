@@ -1,6 +1,7 @@
 """
 Currency Convertor module
 """
+
 import logging
 import os
 from datetime import datetime

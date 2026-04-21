@@ -1,6 +1,7 @@
 """
 Currency Convertor module
 """
+
 import logging
 import os
 from datetime import datetime
@@ -30,7 +31,6 @@ class APIResponse:
     headers: dict
 
 
-# pylint: disable=too-few-public-methods
 class APIRequestHandler:
     """The HTTP Api request handler class."""
 
@@ -105,9 +105,6 @@ class APIRequestHandler:
                     headers=response.headers,
                 )
         return result
-
-
-# pylint: disable=too-few-public-methods
 
 
 class CurrencyConvertor:
