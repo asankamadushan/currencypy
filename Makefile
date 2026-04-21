@@ -58,6 +58,9 @@ ruff:
 	$(UV) run ruff check src tests
 	$(UV) run ruff format --check src tests
 
+format:
+	$(UV) run ruff format src tests
+
 .PHONY: mypy
 mypy:
 	$(UV) run mypy --install-types --non-interactive

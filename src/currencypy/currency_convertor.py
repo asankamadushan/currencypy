@@ -5,6 +5,7 @@ Currency Convertor module
 import logging
 import os
 from datetime import datetime
+from decimal import Decimal
 from functools import lru_cache
 from typing import Union
 
@@ -19,6 +20,9 @@ from currencypy.exceptions import (
     CurrencyAPIKeyException,
     CurrencyException,
 )
+from currencypy.money import Money
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -80,6 +84,8 @@ class APIRequestHandler:
 
         if self.api_key:
             copy_params[self._default_key_name] = self.api_key
+        safe_param_keys = sorted(k for k in copy_params if k != self._default_key_name)
+        logger.debug("HTTP GET path=%s param_keys=%s", path, safe_param_keys)
         encoded_params = urllib.parse.urlencode(copy_params)
         url = f"{url}?{encoded_params}"
         with urllib.request.urlopen(url) as response:
@@ -104,15 +110,32 @@ class APIRequestHandler:
                     data={"error": "Something went wrong"},
                     headers=response.headers,
                 )
+        logger.debug(
+            "HTTP response path=%s status_code=%s success=%s",
+            path,
+            result.status_code,
+            result.success,
+        )
+        if result.status_code != 200:
+            logger.warning(
+                "HTTP GET path=%s non-success status_code=%s success=%s",
+                path,
+                result.status_code,
+                result.success,
+            )
         return result
 
 
 class CurrencyConvertor:
     """
     The currency conversion wrapper class.
+
+    Diagnostic messages use the ``currencypy.currency_convertor`` logger (or
+    configure the ``currencypy`` namespace). The library does not configure
+    handlers; set levels and handlers in the application.
     """
 
-    _BASE_URL = "http://api.currencylayer.com/"
+    _BASE_URL = "https://api.currencylayer.com/"
     _LIVE_URL = "live"
     _HISTORICAL_URL = "historical"
     _SUPPORTED_LIST_URL = "list"
@@ -325,7 +348,7 @@ class CurrencyConvertor:
         returns:
             The supported currencies.
         """
-        logging.debug("Fetching supported currencies")
+        logger.debug("Fetching supported currencies")
         response = self.api_service.get(self._SUPPORTED_LIST_URL)
 
         if not response.success or response.data["success"] is False:
@@ -342,7 +365,7 @@ class CurrencyConvertor:
         returns:
             The currency rates.
         """
-        logging.debug(
+        logger.debug(
             "Fetching live currency rates for %s to %s", from_currency, to_currency
         )
         response = self.api_service.get(
@@ -367,7 +390,7 @@ class CurrencyConvertor:
         returns:
             The currency rates.
         """
-        logging.debug(
+        logger.debug(
             "Fetching historical currency rates for %s to %s on %s",
             from_currency,
             to_currency,
@@ -390,6 +413,11 @@ class CurrencyConvertor:
     @staticmethod
     def _raise_api_error(response: APIResponse):
         error = response.data.get("error") if response.data else None
+        logger.error(
+            "Currency API request failed: status_code=%s api_error=%s",
+            response.status_code,
+            error,
+        )
         raise CurrencyAPIException("Error getting currencies", error)
 
     def get_supported_currencies(self, live_update=False) -> dict[str, str]:
@@ -406,8 +434,8 @@ class CurrencyConvertor:
 
     @lru_cache(maxsize=1000)
     def get_currency_rates(
-        self, from_currency: str, to_currency: str, date: datetime
-    ) -> float:
+        self, from_currency: str, to_currency: str, date: Union[datetime, None] = None
+    ) -> Decimal:
         """
         Get the currency rates for a given currency pair.
         args:
@@ -421,9 +449,17 @@ class CurrencyConvertor:
             CurrencyAPIException: If there is an error fetching the rates.
         """
         if from_currency not in self._supported_currencies:
+            logger.debug("Unsupported source currency: %s", from_currency)
             raise CurrencyException(f"{from_currency} is not a supported currency")
         if to_currency not in self._supported_currencies:
+            logger.debug("Unsupported target currency: %s", to_currency)
             raise CurrencyException(f"{to_currency} is not a supported currency")
+        logger.debug(
+            "Resolving rate %s -> %s date=%s",
+            from_currency,
+            to_currency,
+            date,
+        )
         if date:
             rates = self._fetch_historical_currency_rates(
                 from_currency, to_currency, date
@@ -431,62 +467,73 @@ class CurrencyConvertor:
         else:
             rates = self._fetch_live_currency_rates(from_currency, to_currency)
 
-        return rates["quotes"][f"{from_currency}{to_currency}"]
+        quote = rates["quotes"][f"{from_currency}{to_currency}"]
+        return Decimal(str(quote))
 
     def convert(
         self,
-        amount: float,
+        money: Money,
         *,
-        from_currency: str,
         to_currency: str = "USD",
         date: Union[datetime, None] = None,
-    ) -> float:
+    ) -> Money:
         """
-        Convert an amount from one currency to another.
+        Convert a monetary amount from one currency to another.
         args:
-            amount: The amount to convert.
-            from_currency: The currency to convert from.
+            money: The money to convert (amount and source currency).
             to_currency: The currency to convert to.
             date: The date to fetch the rates for.
 
         returns:
-            The converted amount.
+            The converted money in to_currency.
 
         raises:
             CurrencyException: If the currency is not supported.
             CurrencyAPIException: If there is an error fetching the rates.
 
         Convert between different currencies on a given date rate.
+        >>> from decimal import Decimal
+        >>> from currencypy.money import Money
         >>> c = CurrencyConvertor()
-        >>> c.convert(100.0, from_currency="USD", to_currency="LKR",
-                        date=datetime(2019, 1, 1))
-        18283.9983
+        >>> c.convert(Money(Decimal("100"), "USD"), to_currency="LKR",
+        ...           date=datetime(2019, 1, 1))
+        Money(amount=Decimal('18283.9983'), currency='LKR')
 
         Convert between same currencies.
         >>> c = CurrencyConvertor()
-        >>> c.convert(100.0, from_currency="USD", to_currency="USD")
-        100.0
+        >>> c.convert(Money(Decimal("100"), "USD"), to_currency="USD")
+        Money(amount=Decimal('100'), currency='USD')
         """
-        if from_currency == to_currency:
-            return amount
+        if money.currency == to_currency:
+            logger.debug("convert skipped (same currency): %s", to_currency)
+            return money
 
-        return amount * self.get_currency_rates(from_currency, to_currency, date)
+        logger.debug(
+            "convert %s -> %s date=%s",
+            money.currency,
+            to_currency,
+            date,
+        )
+        rate = self.get_currency_rates(money.currency, to_currency, date)
+        return Money(money.amount * rate, to_currency)
 
 
 if __name__ == "__main__":
     c = CurrencyConvertor(live_update=True)
     try:
         i = 0
-        while i < 1000:
-            x = c.convert(100.0, from_currency="USD", to_currency="LKR")
+        while i < 10:
+            x = c.convert(Money(Decimal("100"), "USD"), to_currency="LKR")
             i += 1
 
-        x = c.convert(100.0, from_currency="USD", to_currency="INR")
+        x = c.convert(Money(Decimal("100"), "USD"), to_currency="INR")
         x = c.convert(
-            100.0, from_currency="USD", to_currency="LKR", date=datetime(2019, 1, 1)
+            Money(Decimal("100"), "USD"),
+            to_currency="LKR",
+            date=datetime(2019, 1, 1),
         )
     except CurrencyException as e:
-        print(e)
+        logger.error("CurrencyException: %s", e)
     except CurrencyAPIException as e:
-        print(e)
-    print("All tests passed")
+        logger.error("CurrencyAPIException: %s", e)
+    logger.info("All tests passed")

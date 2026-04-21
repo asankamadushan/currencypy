@@ -63,6 +63,23 @@ uv run pytest
 
 Set `CL_API_KEY` in the environment (or `.env`) when exercising the API client.
 
+### Logging
+
+The package logs under the `currencypy` namespace (for example `currencypy.currency_convertor`). The library does not configure handlers; enable debug output in your application:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger("currencypy").setLevel(logging.DEBUG)
+```
+
+Or raise the level only for the convertor module:
+
+```python
+logging.getLogger("currencypy.currency_convertor").setLevel(logging.DEBUG)
+```
+
 Or use tox:
 
 ```bash
