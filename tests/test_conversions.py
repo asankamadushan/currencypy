@@ -2,26 +2,30 @@
 The unit tests for the CurrencyConvertor class.
 """
 
+import logging
+import re
 from datetime import datetime
+from decimal import Decimal
 from unittest.mock import patch
+
 import pytest
 from currencypy.currency_convertor import APIResponse, CurrencyConvertor
-from currencypy.exceptions import CurrencyException
+from currencypy.exceptions import CurrencyAPIException, CurrencyException
+from currencypy.money import Money
 
 
 @pytest.mark.parametrize(
-    "from_currency, to_currency, amount, rate, expected",
+    "from_currency, to_currency, amount, rate, expected_amount",
     [
-        ("USD", "LKR", 100, 182.839983, 18283.9983),
-        ("USD", "USD", 100, 1, 100),
-        ("USD", "INR", 100, 1.3598, 135.98),
+        ("USD", "LKR", 100, 182.839983, "18283.9983"),
+        ("USD", "INR", 100, 1.3598, "135.98"),
     ],
 )
 def test_convert_between_different_currencies(
-    from_currency, to_currency, amount, rate, expected
+    from_currency, to_currency, amount, rate, expected_amount
 ):
     """
-    Test the convert method of the CurrencyConvertor class.
+    Cross-currency conversion uses the mocked API response.
     """
     data = {
         "success": True,
@@ -37,38 +41,105 @@ def test_convert_between_different_currencies(
         mocker.return_value = mocked_response
         currency_convertor = CurrencyConvertor()
         result = currency_convertor.convert(
-            amount, from_currency=from_currency, to_currency=to_currency
+            Money(Decimal(str(amount)), from_currency),
+            to_currency=to_currency,
         )
-        assert result == expected
+        assert result == Money(Decimal(expected_amount), to_currency)
 
 
-@pytest.mark.parametrize(
-    "from_currency, to_currency, date",
-    [("USD", "KKI", datetime(2019, 1, 1)), ("USD", "IIi099", datetime(2019, 1, 1))],
-)
-def test_get_currency_rates_with_invalid_from_currency(
-    from_currency, to_currency, date
-):
+def test_convert_same_currency_returns_amount_without_api_call():
     """
-    Test the get_currency_rates method of the CurrencyConvertor class.
+    Same from/to returns the amount immediately; get_currency_rates is never invoked.
     """
+    with patch("currencypy.currency_convertor.APIRequestHandler.get") as mocker:
+        currency_convertor = CurrencyConvertor()
+        result = currency_convertor.convert(
+            Money(Decimal("100"), "USD"),
+            to_currency="USD",
+        )
+        assert result == Money(Decimal("100"), "USD")
+        mocker.assert_not_called()
+
+
+def test_convert_result_currency_matches_to_currency():
+    """Converted Money carries the target ISO currency code."""
     data = {
-        "success": False,
-        "error": {"code": 104, "info": "Invalid currency: INVALID"},
+        "success": True,
+        "terms": "https://currencylayer.com/terms",
+        "privacy": "https://currencylayer.com/privacy",
+        "quotes": {"USDJPY": 150.25},
     }
     mocked_response = APIResponse(200, True, data, {})
     with patch("currencypy.currency_convertor.APIRequestHandler.get") as mocker:
         mocker.return_value = mocked_response
         currency_convertor = CurrencyConvertor()
-        with pytest.raises(CurrencyException):
-            currency_convertor.get_currency_rates(from_currency, to_currency, date)
+        out = currency_convertor.convert(
+            Money(Decimal("2"), "USD"),
+            to_currency="JPY",
+        )
+        assert out.currency == "JPY"
+
+
+def test_convert_uses_decimal_rates_not_float_drift():
+    """
+    Rate is parsed via Decimal(str(quote)); product matches exact Decimal math.
+    """
+    data = {
+        "success": True,
+        "terms": "https://currencylayer.com/terms",
+        "privacy": "https://currencylayer.com/privacy",
+        "quotes": {"USDEUR": 0.1},
+    }
+    mocked_response = APIResponse(200, True, data, {})
+    with patch("currencypy.currency_convertor.APIRequestHandler.get") as mocker:
+        mocker.return_value = mocked_response
+        currency_convertor = CurrencyConvertor()
+        out = currency_convertor.convert(
+            Money(Decimal("3"), "USD"),
+            to_currency="EUR",
+        )
+        assert out.amount == Decimal("3") * Decimal("0.1")
+
+
+@pytest.mark.parametrize(
+    "from_currency, to_currency, date, expected_msg",
+    [
+        (
+            "USD",
+            "KKI",
+            datetime(2019, 1, 1),
+            "KKI is not a supported currency",
+        ),
+        (
+            "USD",
+            "IIi099",
+            datetime(2019, 1, 1),
+            "IIi099 is not a supported currency",
+        ),
+        (
+            "KKI",
+            "USD",
+            datetime(2019, 1, 1),
+            "KKI is not a supported currency",
+        ),
+    ],
+)
+def test_get_currency_rates_raises_for_unsupported_currency(
+    from_currency, to_currency, date, expected_msg
+):
+    """
+    Validation fails before any HTTP call; message identifies which code was rejected.
+    """
+    currency_convertor = CurrencyConvertor()
+    with pytest.raises(CurrencyException, match=re.escape(expected_msg)):
+        currency_convertor.get_currency_rates(from_currency, to_currency, date)
 
 
 @pytest.mark.parametrize(
     "from_currency, to_currency, expected",
-    [("USD", "LKR", 182.839983)],
+    [("USD", "LKR", Decimal("182.839983"))],
 )
-def test_get_currency_rates(from_currency: str, to_currency: str, expected: float):
+def test_get_currency_rates(from_currency: str, to_currency: str, expected: Decimal):
     """
     Test the get_currency_rates method of the CurrencyConvertor class.
     """
@@ -94,176 +165,26 @@ def test_get_currency_rates(from_currency: str, to_currency: str, expected: floa
 
 def test_get_supported_currencies():
     """
-    Test the get_supported_currencies method of the CurrencyConvertor class.
+    With live_update=False, the bundled default map is returned (single source of truth).
     """
     currency_convertor = CurrencyConvertor()
-    assert list(currency_convertor.get_supported_currencies().keys()) == [
-        "AED",
-        "AFN",
-        "ALL",
-        "AMD",
-        "ANG",
-        "AOA",
-        "ARS",
-        "AUD",
-        "AWG",
-        "AZN",
-        "BAM",
-        "BBD",
-        "BDT",
-        "BGN",
-        "BHD",
-        "BIF",
-        "BMD",
-        "BND",
-        "BOB",
-        "BRL",
-        "BSD",
-        "BTC",
-        "BTN",
-        "BWP",
-        "BYN",
-        "BYR",
-        "BZD",
-        "CAD",
-        "CDF",
-        "CHF",
-        "CLF",
-        "CLP",
-        "CNY",
-        "COP",
-        "CRC",
-        "CUC",
-        "CUP",
-        "CVE",
-        "CZK",
-        "DJF",
-        "DKK",
-        "DOP",
-        "DZD",
-        "EGP",
-        "ERN",
-        "ETB",
-        "EUR",
-        "FJD",
-        "FKP",
-        "GBP",
-        "GEL",
-        "GGP",
-        "GHS",
-        "GIP",
-        "GMD",
-        "GNF",
-        "GTQ",
-        "GYD",
-        "HKD",
-        "HNL",
-        "HRK",
-        "HTG",
-        "HUF",
-        "IDR",
-        "ILS",
-        "IMP",
-        "INR",
-        "IQD",
-        "IRR",
-        "ISK",
-        "JEP",
-        "JMD",
-        "JOD",
-        "JPY",
-        "KES",
-        "KGS",
-        "KHR",
-        "KMF",
-        "KPW",
-        "KRW",
-        "KWD",
-        "KYD",
-        "KZT",
-        "LAK",
-        "LBP",
-        "LKR",
-        "LRD",
-        "LSL",
-        "LTL",
-        "LVL",
-        "LYD",
-        "MAD",
-        "MDL",
-        "MGA",
-        "MKD",
-        "MMK",
-        "MNT",
-        "MOP",
-        "MRO",
-        "MUR",
-        "MVR",
-        "MWK",
-        "MXN",
-        "MYR",
-        "MZN",
-        "NAD",
-        "NGN",
-        "NIO",
-        "NOK",
-        "NPR",
-        "NZD",
-        "OMR",
-        "PAB",
-        "PEN",
-        "PGK",
-        "PHP",
-        "PKR",
-        "PLN",
-        "PYG",
-        "QAR",
-        "RON",
-        "RSD",
-        "RUB",
-        "RWF",
-        "SAR",
-        "SBD",
-        "SCR",
-        "SDG",
-        "SEK",
-        "SGD",
-        "SHP",
-        "SLL",
-        "SOS",
-        "SRD",
-        "STD",
-        "SVC",
-        "SYP",
-        "SZL",
-        "THB",
-        "TJS",
-        "TMT",
-        "TND",
-        "TOP",
-        "TRY",
-        "TTD",
-        "TWD",
-        "TZS",
-        "UAH",
-        "UGX",
-        "USD",
-        "UYU",
-        "UZS",
-        "VEF",
-        "VND",
-        "VUV",
-        "WST",
-        "XAF",
-        "XAG",
-        "XAU",
-        "XCD",
-        "XDR",
-        "XOF",
-        "XPF",
-        "YER",
-        "ZAR",
-        "ZMK",
-        "ZMW",
-        "ZWL",
-    ]
+    assert (
+        currency_convertor.get_supported_currencies()
+        == CurrencyConvertor._DEFAULT_CURRENCY_LIST
+    )
+
+
+def test_raise_api_error_logs_before_exception(caplog):
+    """API failures emit an ERROR log before CurrencyAPIException."""
+    caplog.set_level(logging.ERROR, logger="currencypy.currency_convertor")
+    data = {
+        "success": False,
+        "error": {"code": 101},
+    }
+    mocked_response = APIResponse(200, True, data, {})
+    with patch("currencypy.currency_convertor.APIRequestHandler.get") as mocker:
+        mocker.return_value = mocked_response
+        currency_convertor = CurrencyConvertor()
+        with pytest.raises(CurrencyAPIException):
+            currency_convertor.get_currency_rates("USD", "EUR", None)
+    assert "Currency API request failed" in caplog.text
