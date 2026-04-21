@@ -8,18 +8,19 @@ version = "1.0.0"
 description = "A wrapper for currencylayer API"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [{ name = "Asanka Perera" }]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "python-dotenv>=0.20.0",
+    "cachetools==7.0.4",
+    "python-dotenv==0.20.0",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +30,7 @@ dev = [
     "mypy==1.8.0",
     "tox==4.13.0",
     "pre-commit==3.6.2",
+    "types-cachetools==5.3.0",
 ]
 testing = [
     "pytest>=7.0",
@@ -48,7 +50,7 @@ testpaths = [
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 # Match prior flake8: slice spacing with Black/Ruff formatter

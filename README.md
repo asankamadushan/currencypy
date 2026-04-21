@@ -1,6 +1,12 @@
 # Python currency conversion
 This is wrapper for currancylayer API
 
+## Runtime
+
+- **Python 3.10+**
+- **cachetools** (pinned in `pyproject.toml`) for in-memory rate caching: **live** quotes use a `TTLCache` (default TTL five minutes); **historical** quotes use an `LRUCache` (fixed calendar-day rates are reused without a time limit until evicted by size).
+- Tune via `CurrencyConvertor(..., live_rate_ttl_seconds=..., rate_cache_maxsize=...)` (keyword-only).
+
 ## Development
 
 Install [uv](https://docs.astral.sh/uv/), then create a virtual environment and install the project with dev dependencies:

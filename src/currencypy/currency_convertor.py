@@ -4,17 +4,21 @@ Currency Convertor module
 
 import logging
 import os
-from datetime import datetime
+import random
+import time
+from datetime import datetime, timezone
 from decimal import Decimal
-from functools import lru_cache
+from email.utils import parsedate_to_datetime
 from typing import Union
 
 import json
-import urllib
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from dotenv import load_dotenv
+
+from cachetools import LRUCache, TTLCache
 from currencypy.exceptions import (
     CurrencyAPIException,
     CurrencyAPIKeyException,
@@ -23,6 +27,49 @@ from currencypy.exceptions import (
 from currencypy.money import Money
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_error_response_body(http_code: int, body: bytes) -> dict:
+    """Parse JSON error body or return a synthetic dict for logging and _raise_api_error."""
+    if not body.strip():
+        return {
+            "success": False,
+            "error": {"code": http_code, "info": "empty response body"},
+        }
+    try:
+        parsed = json.loads(body)
+        if isinstance(parsed, dict):
+            parsed["success"] = False
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    text = body.decode("utf-8", errors="replace")[:500]
+    return {
+        "success": False,
+        "error": {"code": http_code, "info": text},
+    }
+
+
+def _retry_after_seconds(headers: dict[str, str]) -> float | None:
+    """Return seconds to wait from Retry-After, or None to use backoff."""
+    raw = headers.get("Retry-After")
+    if raw is None:
+        return None
+    raw = raw.strip()
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    try:
+        dt = parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return None
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    delta = (dt - datetime.now(timezone.utc)).total_seconds()
+    return max(0.0, float(delta))
 
 
 @dataclass
@@ -49,6 +96,10 @@ class APIRequestHandler:
         base_url: str,
         api_key: Union[str, None] = None,
         headers: Union[dict[str, str], None] = None,
+        *,
+        max_retries: int = 0,
+        retry_base_seconds: float = 1.0,
+        retry_max_sleep_seconds: float = 60.0,
     ):
         """The constructor method.
         Args:
@@ -56,12 +107,19 @@ class APIRequestHandler:
             base_url (str): The base URL of the API.
             headers (Union[Dict[str, str], None], optional): The headers. Defaults to
                     None.
+            max_retries: Extra attempts for HTTP 429 / 503 after the first request.
+            retry_base_seconds: Base delay for exponential backoff when Retry-After
+                is absent.
+            retry_max_sleep_seconds: Upper bound for sleep between retries.
         """
         self.api_key = api_key
         self.base_url = base_url
         self.headers = headers.copy() if headers else self._default_headers
         if self.api_key:
             self.headers[self._default_key_name] = self.api_key
+        self.max_retries = max_retries
+        self.retry_base_seconds = retry_base_seconds
+        self.retry_max_sleep_seconds = retry_max_sleep_seconds
 
     def get(
         self, path: str, params: dict[str, Union[str, int]] | None = None
@@ -71,10 +129,13 @@ class APIRequestHandler:
             path (str): The path of the API endpoint.
             params (Dict[str, Union[str, int]]): The query params.
         Returns:
-            Dict[str, Union[str, int]]: The response data.
+            APIResponse: Parsed response; ``success`` is False for HTTP errors and
+            network failures (see ``status_code``).
 
-        Raises:
-            CurrencyAPIException: If the response status is not in range 200.
+        Note:
+            HTTP error responses (4xx/5xx) and ``URLError`` are converted to
+            ``APIResponse`` instead of raising. Callers such as ``CurrencyConvertor``
+            map failures to ``CurrencyAPIException``.
         """
         url = urllib.parse.urljoin(self.base_url, path)
         if not params:
@@ -88,28 +149,77 @@ class APIRequestHandler:
         logger.debug("HTTP GET path=%s param_keys=%s", path, safe_param_keys)
         encoded_params = urllib.parse.urlencode(copy_params)
         url = f"{url}?{encoded_params}"
-        with urllib.request.urlopen(url) as response:
-            if response.status == 200:
+
+        max_attempts = self.max_retries + 1
+        attempt = 0
+        result: APIResponse | None = None
+
+        while attempt < max_attempts:
+            attempt += 1
+            try:
+                with urllib.request.urlopen(url) as response:
+                    raw = response.read()
+                    status = response.status
+                    resp_headers = dict(response.headers.items())
+                    if status == 200:
+                        result = APIResponse(
+                            status_code=status,
+                            success=True,
+                            data=json.loads(raw),
+                            headers=resp_headers,
+                        )
+                    else:
+                        data = _parse_error_response_body(status, raw)
+                        result = APIResponse(
+                            status_code=status,
+                            success=False,
+                            data=data,
+                            headers=resp_headers,
+                        )
+                    break
+            except urllib.error.HTTPError as e:
+                body = e.read()
+                hdrs = dict(e.headers.items()) if e.headers else {}
+                if e.code in (429, 503) and attempt < max_attempts:
+                    wait = _retry_after_seconds(hdrs)
+                    if wait is None:
+                        wait = min(
+                            self.retry_max_sleep_seconds,
+                            self.retry_base_seconds * (2 ** (attempt - 1))
+                            + random.uniform(0, 0.25),
+                        )
+                    else:
+                        wait = min(wait, self.retry_max_sleep_seconds)
+                    logger.warning(
+                        "HTTP GET path=%s status=%s retry %s/%s sleep=%.2fs",
+                        path,
+                        e.code,
+                        attempt,
+                        max_attempts,
+                        wait,
+                    )
+                    time.sleep(wait)
+                    continue
                 result = APIResponse(
-                    status_code=response.status,
-                    success=True,
-                    data=json.loads(response.read()),
-                    headers=response.headers,
-                )
-            elif response.status in range(400, 499):
-                result = APIResponse(
-                    status_code=response.status,
+                    status_code=e.code,
                     success=False,
-                    data=json.loads(response.read()),
-                    headers=response.headers,
+                    data=_parse_error_response_body(e.code, body),
+                    headers=hdrs,
                 )
-            else:
+                break
+            except urllib.error.URLError as e:
                 result = APIResponse(
-                    status_code=response.status,
+                    status_code=0,
                     success=False,
-                    data={"error": "Something went wrong"},
-                    headers=response.headers,
+                    data={
+                        "success": False,
+                        "error": {"info": str(e.reason)},
+                    },
+                    headers={},
                 )
+                break
+
+        assert result is not None
         logger.debug(
             "HTTP response path=%s status_code=%s success=%s",
             path,
@@ -311,7 +421,15 @@ class CurrencyConvertor:
     }
 
     def __init__(
-        self, api_key: Union[str, None] = None, live_update: bool = False
+        self,
+        api_key: Union[str, None] = None,
+        live_update: bool = False,
+        *,
+        live_rate_ttl_seconds: int = 300,
+        rate_cache_maxsize: int = 1000,
+        api_max_retries: int = 0,
+        api_retry_base_seconds: float = 1.0,
+        api_retry_max_sleep_seconds: float = 60.0,
     ) -> None:
         """
         Initialize the currency convertor.
@@ -319,13 +437,28 @@ class CurrencyConvertor:
             api_key: The API key to use.
             live_update: If this is true the supported currency list
                         will be check against the API response.
+            live_rate_ttl_seconds: Time-to-live for cached live (non-historical) rates.
+            rate_cache_maxsize: Max entries for live TTL cache and historical LRU cache.
+            api_max_retries: Extra HTTP attempts for 429/503 from the currency API.
+            api_retry_base_seconds: Backoff base when Retry-After is not set.
+            api_retry_max_sleep_seconds: Cap on sleep between API retries.
         """
         self.api_key = api_key or self.__load_api_key_from_env()
         self.live_update = live_update
         self.api_service = APIRequestHandler(
-            base_url=self._BASE_URL, api_key=self.api_key
+            base_url=self._BASE_URL,
+            api_key=self.api_key,
+            max_retries=api_max_retries,
+            retry_base_seconds=api_retry_base_seconds,
+            retry_max_sleep_seconds=api_retry_max_sleep_seconds,
         )
         self._supported_currencies = self.get_supported_currencies(live_update)
+        self._live_rate_cache: TTLCache[tuple[str, str, datetime | None], Decimal] = (
+            TTLCache(maxsize=rate_cache_maxsize, ttl=live_rate_ttl_seconds)
+        )
+        self._historical_rate_cache: LRUCache[
+            tuple[str, str, datetime | None], Decimal
+        ] = LRUCache(maxsize=rate_cache_maxsize)
 
     @staticmethod
     def __load_api_key_from_env() -> str:
@@ -432,7 +565,6 @@ class CurrencyConvertor:
             return self._fetch_supported_currencies()
         return self._DEFAULT_CURRENCY_LIST
 
-    @lru_cache(maxsize=1000)
     def get_currency_rates(
         self, from_currency: str, to_currency: str, date: Union[datetime, None] = None
     ) -> Decimal:
@@ -454,6 +586,14 @@ class CurrencyConvertor:
         if to_currency not in self._supported_currencies:
             logger.debug("Unsupported target currency: %s", to_currency)
             raise CurrencyException(f"{to_currency} is not a supported currency")
+
+        key = (from_currency, to_currency, date)
+        cache = self._live_rate_cache if date is None else self._historical_rate_cache
+        if key in cache:
+            logging.info("Cache hit for %s", key)
+            return cache[key]
+
+        logging.info("Cache miss for %s", key)
         logger.debug(
             "Resolving rate %s -> %s date=%s",
             from_currency,
@@ -468,7 +608,9 @@ class CurrencyConvertor:
             rates = self._fetch_live_currency_rates(from_currency, to_currency)
 
         quote = rates["quotes"][f"{from_currency}{to_currency}"]
-        return Decimal(str(quote))
+        result = Decimal(str(quote))
+        cache[key] = result
+        return result
 
     def convert(
         self,
@@ -526,7 +668,7 @@ if __name__ == "__main__":
             x = c.convert(Money(Decimal("100"), "USD"), to_currency="LKR")
             i += 1
 
-        x = c.convert(Money(Decimal("100"), "USD"), to_currency="INR")
+        x = c.convert(Money(Decimal("100"), "USD"), to_currency="EUR")
         x = c.convert(
             Money(Decimal("100"), "USD"),
             to_currency="LKR",
