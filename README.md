@@ -1,5 +1,10 @@
 # Python currency conversion
-This is wrapper for currancylayer API
+
+This is a wrapper for the [Currencylayer](https://currencylayer.com/) JSON API.
+
+## API key
+
+The client reads `CL_API_KEY` from the environment (or a `.env` file loaded by your app). Get an access key by signing up at [currencylayer.com](https://currencylayer.com/) (free and paid plans are available).
 
 ## Development
 
@@ -60,8 +65,6 @@ uv run pre-commit run --all-files
 ```bash
 uv run pytest
 ```
-
-Set `CL_API_KEY` in the environment (or `.env`) when exercising the API client.
 
 ### Logging
 
